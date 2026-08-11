@@ -93,13 +93,15 @@ Access Bundle 是 Claude Tag 权限架构的核心。截图 21–23 直接展示
 
 | Bundle 内容 | 解决的问题 |
 |---|---|
-| Credentials | Claude 使用哪个服务账号/API Credential 访问 Asana、Datadog、Google 等系统 |
+| Credentials / Connections | Claude 使用哪个服务账号/API Credential；每个 Connection 还可限定 Allowed hosts、URL path 与 HTTP method |
 | Repositories | Claude GitHub App / GitLab 可访问哪些代码仓库 |
-| Domains | Sandbox 可访问哪些无凭证 Host；未被允许的网络请求会被阻断 |
+| Domains | Sandbox 可访问哪些无凭证 Host 与 Port；未被允许的网络请求会被阻断 |
 | Plugins | 给连接附带工具使用方法或业务流程 Skill |
 | Instructions | 与该能力包一起复用的指导，不绑定某个频道 |
 
 Bundle 可以按能力拆分，例如 `data-readonly`、`github-write`、`monitoring`，然后在频道中组合，而不是每个频道重复配置 Credential。
+
+官方当前已明确 Connection 的细粒度网络策略：凭证先绑定明确 Host，保存后还可按 URL Path 与 HTTP Method（例如只允许 `GET`、禁止 `DELETE`）继续收窄。Credential 由 Agent Proxy 在网络边界注入，模型和 Sandbox 不持有 Secret；Host 未命中 Connection、Bundle Domain 或 Environment 网络规则时，请求默认阻断。Web Search 发生在 Anthropic 服务端，不使用这三层 Sandbox allow 规则。
 
 截图 24–26 还显示 GitHub 组织安装与个人连接入口。频道中的 GitHub 工作使用 Claude GitHub App；其他 SaaS 通常应使用专门为 Agent 创建的服务账号。个人 claude.ai Connector 只用于 DM，不会自动进入频道 Session。
 
@@ -130,7 +132,7 @@ Bundle 可以按能力拆分，例如 `data-readonly`、`github-write`、`monito
 | 配置项 | Default Slack / Workspace / Channel 的合并方式 | 对运行的影响 |
 |---|---|---|
 | Access Bundles | 自上而下累加；Channel 获得 Root + Workspace + Channel 的并集 | 决定最终可用 Credential、Repo、Domain、Plugin、Instruction |
-| 同 Host Credential | 最窄 Scope 胜出：Channel > Workspace > Default Slack；失败不回退 | 决定 Agent 实际以哪个账号访问某服务 |
+| 同 Host Credential / Connection rule | 最窄 Scope 胜出：Channel > Workspace > Default Slack；失败不回退；再受 Host/Path/Method 限制 | 决定 Agent 实际以哪个账号、哪些 API 入口访问服务 |
 | Repositories | 所有生效 Bundle 的 Repo Grant 取并集 | 决定可读写代码范围 |
 | Plugins | Bundle 内和 Scope 直挂的 Plugin 合并 | 决定 Session 获得的 Skill / 工具指导 |
 | Bundle Instructions | 随 Bundle 一起进入所有绑定 Scope | 适合“能力携带的说明” |
@@ -249,5 +251,7 @@ GLM 建议增强：
 | B 真实产品截图 | 界面字段、操作步骤、页面关系、可见状态 | `docs/claude-tag-screenshots.md` |
 | C 三方解读 | 发现可讨论的架构假设 | `docs/claude-tag-third-party-analysis.md` |
 | D UI 拆解项 | 作为 Z Tag 待设计清单，不能反推 Claude Tag 已上线 | `docs/claude-tag-ui-atlas.md` |
+
+2026-08-12 再次核对官方设置地图与连接文档：Allowed hosts、URL path、HTTP method、Credential type 与 Environment 网络层均已被官方明确确认，不再标记为截图推断。
 
 三方图中的 Redis、Vector DB、“stateful OS”、Entra Agent User、加密隔离等内容均没有被真实截图或官方资料直接确认，不能当作 Claude Tag 的既有技术实现。
