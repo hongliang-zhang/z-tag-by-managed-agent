@@ -40,8 +40,9 @@
 | Routine 支持通用 Webhook / Event Trigger | **未确认**：现有资料确认 Schedule、Channel Watch、PR Subscription |
 | Network events 是完整逐动作审计 UI | **错误**：它是可选的按小时 JSON 导出，不含 Git/MCP；没有统一 per-action log |
 | 不同 Channel 使用不同组织身份 | **表述不准**：同一组织级 Agent Identity，在不同 Scope 下解析出不同 Credential / Repo / Network 权限 |
+| Allowed HTTP Methods / Path Prefix 只是想象 UI | **已被官方更新证实**：Connection 保存后可按 URL Path 与 HTTP Method 继续限制；具体截图样式仍需区分官方事实与第三方画面 |
 
-只有 A/B 可以直接写成 Claude Tag 产品事实；C 只能证明某个界面曾被第三方看到；D 只作为 Z Tag 待设计清单。
+只有 A/B 可以直接写成 Claude Tag 产品事实；C 只能证明某个界面曾被第三方看到；D 只作为 Z Tag 待设计清单。2026-08-12 官方复核后，Connection 的 Allowed hosts、URL Path、HTTP Method 与 Credential type 已从 C/D 提升为 A 级事实。
 
 ---
 
@@ -55,7 +56,7 @@
 | 4 | Access Bundle | Credential、Repo、Domain、Plugin、Instruction 等能力集合 | B/C | ⭐⭐⭐⭐⭐ |
 | 5 | Access Bundle → Credentials | 已连接应用、可连接应用、共享身份凭证 | C | ⭐⭐⭐⭐⭐ |
 | 6 | Access Bundle → Repository | GitHub Organization / Repository 范围 | A/C | ⭐⭐⭐⭐ |
-| 7 | Connect an app 弹窗 | Credential type、Allowed websites、Custom headers 等 | C | ⭐⭐⭐⭐ |
+| 7 | Connect an app 弹窗 | Credential type、Allowed websites、Path / HTTP method；Custom headers 仍以截图为证 | A/C | ⭐⭐⭐⭐ |
 | 8 | Channel → 绑定 Access Bundle | 当前 Channel 挂载已有 Bundle | C | ⭐⭐⭐⭐⭐ |
 | 9 | `Open session in Claude` | 打开只读 Session Trace；继续指导仍在 Slack Thread | A/B | ⭐⭐⭐⭐⭐ |
 | 10 | Audit → Scheduled work | Routine 列表、状态、上次/下次执行、Pause/Resume | B/C | ⭐⭐⭐⭐⭐ |
@@ -208,6 +209,8 @@ Access Bundle 是 Claude Tag 最值得研究的产品对象之一。
 61. Path Prefix Restrictions。
 62. Host / Domain Boundary。
 
+官方当前已确认的 Credential type 包括 Bearer、Basic、Body parameter、AWS SigV4、GCP access token、GCP IAP、OAuth 2.0 JWT bearer、OAuth 2.0 client credentials、OAuth 2.0 authorization code 与 GitHub App。Credential 固定绑定特定 Allowed websites，不能对带凭证的 Connection 配置全域 `*`；保存后可继续限制 URL Path 和 HTTP Method。Secret 在 Agent Proxy 网络边界注入，模型与 Sandbox 不可见。Custom headers 的具体表单形态仍只按截图证据处理。
+
 ## 4.3 Repositories
 
 63. Repositories Tab。
@@ -228,6 +231,8 @@ Access Bundle 是 Claude Tag 最值得研究的产品对象之一。
 75. Port Restriction。
 76. Network Scope。
 77. Host Allowlist。
+
+官方明确了三层 Sandbox 出站 allow：Connection（命中 Host 并注入 Credential）、Bundle Domain（仅放行 Host/Port，不带 Credential）、Scope Environment（按 Trusted / 更宽网络等级放行）。三层均未命中时默认阻断；Web Search 在服务端执行，不属于 Sandbox Network Request。Domain 支持最左侧通配符与端口，但 Agent Proxy 只承载 HTTP/HTTPS。
 
 ## 4.5 Plugins
 
