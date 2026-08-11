@@ -1,52 +1,52 @@
 flowchart TB
-    U["团队成员 / 管理员"] --> CH["Slack / 飞书 / Teams<br/>@Mention · Thread · DM · Assistant Panel"]
+    U["团队成员 · Owner · Admin"] --> S
 
-    subgraph TAG["Z Tag 团队级产品层｜Managed Agent 外补建"]
-        direction TB
-        T1["渠道接入与协作<br/>Event Gateway · Thread↔Session<br/>多人 Steering · Checklist · 结果回帖"]
-        T2["Agent Profile 与 Scope<br/>组织 → Workspace → Channel<br/>模型 · 指令 · Skill · 环境 · 配置继承"]
-        T3["团队上下文与记忆<br/>Thread/频道历史 · Workspace 搜索<br/>公共记忆 · 私有频道隔离 · 记忆治理"]
-        T4["Agent Identity 与 Access Bundle<br/>服务账号 · 连接器授权<br/>Credential Proxy · Egress 策略 · 即时审批"]
-        T5["Proactivity / Routines<br/>Cron · 频道监听 · PR/Webhook<br/>持续跟进 · 主动 @人"]
-        T6["企业治理与商业化<br/>RBAC · 外部频道策略 · Audit<br/>用量分析 · Org/Channel 限额 · 可靠性"]
-
-        T1 --> T2
-        T2 --> T3
-        T2 --> T4
-        T2 --> T5
-        T6 --- T1
-        T6 --- T3
-        T6 --- T4
-        T6 --- T5
+    subgraph S["协作与透明度入口"]
+        C["Slack / 飞书 / Teams<br/>Workspace · Channel · Thread · DM<br/>@Mention · Ambient · Routine"]
+        V["Read-only Session Trace<br/>完整记录 · Tool Calls · Artifact"]
+        C -. "Open session" .-> V
     end
 
-    CH --> T1
+    subgraph Z["Z Tag 团队产品与控制面｜Managed Agent 外补建"]
+        A["安装配对与 Channel Registry<br/>Tenant · Workspace · Channel · Membership"]
+        B["Scope Graph + Interaction Policy<br/>Root → Workspace → Channel<br/>Model · Environment · Instructions · Ambient"]
+        I["Agent Identity + Access Bundle Registry<br/>Service Account / GitHub App<br/>Credential · Repo · Domain · Plugin"]
+        R["Effective Config Resolver<br/>标量覆盖 · 集合累加 · 指令拼接<br/>Credential 最窄 Scope 胜出"]
+        T["Thread–Session Bridge + Renderer<br/>多人 Steering · Checklist · Result<br/>只读 Trace 深链"]
+        L["Context · Memory · Routine<br/>Thread / Channel Context<br/>Public Workspace / Private Channel Store<br/>Schedule · Watch · PR Subscription"]
+        G["Governance Plane<br/>Human→Agent RBAC · Agent→Resource Policy<br/>Org / Default Channel / Per-channel Budget<br/>Unified Audit · Reliability"]
 
-    subgraph MA["GLM Managed Agent｜复用执行底座"]
-        direction TB
-        M1["Agent 定义与版本<br/>Model · Prompt · Tools/MCP<br/>Skills · Multi-agent"]
-        M2["Session 与 Agent Loop<br/>异步执行 · SSE/Webhook<br/>Steer · Interrupt · Budget"]
-        M3["Environment / Sandbox<br/>Bash · Files · Web · Code<br/>Artifact / Output"]
-        M4["运行基础设施<br/>Memory Store · Vault · Cron<br/>Trace · Outcome / Eval"]
+        A --> B
+        B --> R
+        I --> R
+        R -->|"SessionLaunchSpec + Provenance"| T
+        L --> T
+        G --- A
+        G --- I
+        G --- T
+    end
 
-        M1 --> M2
-        M2 --> M3
+    C --> A
+    C --> T
+    T -. "Progress · Confirmation · Result" .-> C
+    T --> V
+
+    subgraph M["GLM Managed Agent｜复用执行底座"]
+        M1["Agent Definition<br/>Model · Prompt · Tools/MCP · Skills"]
+        M2["Session & Agent Loop<br/>Async · Event Stream · Steer · Interrupt · Budget"]
+        M3["Environment / Sandbox<br/>Bash · Files · Web · Code · Artifact"]
+        M4["Runtime Primitives<br/>Memory Store · Vault · Cron/Webhook · Trace/Eval"]
+        M1 --> M2 --> M3
         M4 --> M2
     end
 
-    T2 --> M1
-    T1 --> M2
-    T3 --> M4
-    T5 --> M4
-    M2 -. "进度 · 状态 · 确认 · 结果" .-> T1
+    T -->|"Create / Steer + Context Pack"| M2
+    M2 -. "Runtime Events" .-> T
+    L --> M4
+    G --> M4
 
-    subgraph EXT["企业数据与业务系统"]
-        direction TB
-        X1["GitHub / GitLab"]
-        X2["文档 / CRM / 数据仓库"]
-        X3["工单 / 监控 / 业务 API"]
-    end
+    P["Credential / Policy Gateway｜补建<br/>Host · Path · Method · Approval<br/>网络边界动态注入 · 默认拒绝"]
+    X["企业系统<br/>GitHub/GitLab · Docs/CRM/DW<br/>Ticket/Monitoring/Business API"]
 
-    M3 --> T4
-    T4 --> EXT
-
+    I --> P
+    M3 --> P --> X
