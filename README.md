@@ -12,7 +12,7 @@ Default Slack access → Workspace Scope → Channel Scope → Thread Session
 ```
 
 - Scope：决定频道的模型、环境、版本、指令、自动动作规则等。
-- Access Bundle：组合 Credentials、Repositories、Domains、Plugins、Instructions，并向下累加。
+- Access Bundle：组合 Credentials、Repositories、Domains、Plugins、Instructions，并向下累加；Connection 还可限制 Allowed hosts、URL path 与 HTTP method。
 - Effective Config：对不同字段分别执行覆盖、累加、拼接和 Credential 冲突优先级。
 - Memory：使用独立拓扑；公共频道共享 Workspace Store，私有频道只读公共记忆、写私有 Store。
 - Interaction Policy：`@Mention` 保证回复；频道可开启 Ambient 自动回复；Thread 内回复继续原 Session。
@@ -42,6 +42,8 @@ Default Slack access → Workspace Scope → Channel Scope → Thread Session
 | [Claude Tag UI Atlas（证据复核版）](docs/claude-tag-ui-atlas.md) | UI 清单、官方复核结论与被排除的过度推断 |
 | [Claude Tag 三方解读](docs/claude-tag-third-party-analysis.md) | 13 张分析图中可采纳、可参考和不能当作事实的部分 |
 | [官方资料索引](docs/sources.md) | Claude Tag 与 Claude Managed Agents 的官方资料链接 |
+| [研究复核记录](docs/research-changelog.md) | 每轮官方复核发现的新增事实、纠错与仓库同步状态 |
+| [配置 Demo 产品方案（待确认）](docs/demo-product-plan.md) | 首版交互原型的目标、页面、流程、状态、边界与验收标准 |
 
 ## 研究边界
 

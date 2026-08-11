@@ -202,9 +202,12 @@ GitHub / repo-a
 ```text
 AccessBundle
 ├── name / description / version
-├── credential_refs[]
+├── connection_rules[]
+│   ├── credential_ref / credential_type
+│   ├── allowed_hosts[]
+│   └── path_rules[] / http_methods[]
 ├── repository_grants[]
-├── domain_rules[]
+├── domain_rules[]  # 无 Credential 的 host / port allow
 ├── plugin_refs[]
 ├── bundle_instructions[]
 └── scope_bindings[]
@@ -218,6 +221,8 @@ Bundle 应按能力命名和复用，例如：
 - `salesforce-account-read`
 
 Scope Console 只负责“绑定哪些 Bundle”，Credential 的创建、轮换和外部权限范围在 Bundle/Identity 管理中完成。
+
+Policy Gateway 应按固定顺序解析出站请求：先匹配生效 Connection 的 Host/Path/Method 并在网络边界注入 Credential；否则匹配 Bundle Domain 的无凭证 Host/Port；再否则匹配 Scope Environment 的网络等级；全部未命中则拒绝。Web Search 属于服务端工具，不经过这套 Sandbox allow 判定。该顺序既对应 Claude Tag 当前公开机制，也是 Demo 中 Effective Access Summary 必须展示的权限来源。
 
 ### 7.2 Agent Identity 模型
 
