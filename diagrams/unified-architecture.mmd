@@ -1,52 +1,55 @@
 flowchart TB
-    U["团队成员 / 管理员"] --> CH["Slack / 飞书 / Teams<br/>@Mention · Thread · DM · Assistant Panel"]
+    U["团队成员 / Owner / Admin"] --> CH["Slack / 飞书 / Teams\nWorkspace · Channel · Thread · DM"]
 
-    subgraph TAG["Z Tag 团队级产品层｜Managed Agent 外补建"]
+    subgraph TAG["Z Tag 团队产品与控制面｜Managed Agent 外补建"]
         direction TB
-        T1["渠道接入与协作<br/>Event Gateway · Thread↔Session<br/>多人 Steering · Checklist · 结果回帖"]
-        T2["Agent Profile 与 Scope<br/>组织 → Workspace → Channel<br/>模型 · 指令 · Skill · 环境 · 配置继承"]
-        T3["团队上下文与记忆<br/>Thread/频道历史 · Workspace 搜索<br/>公共记忆 · 私有频道隔离 · 记忆治理"]
-        T4["Agent Identity 与 Access Bundle<br/>服务账号 · 连接器授权<br/>Credential Proxy · Egress 策略 · 即时审批"]
-        T5["Proactivity / Routines<br/>Cron · 频道监听 · PR/Webhook<br/>持续跟进 · 主动 @人"]
-        T6["企业治理与商业化<br/>RBAC · 外部频道策略 · Audit<br/>用量分析 · Org/Channel 限额 · 可靠性"]
 
-        T1 --> T2
-        T2 --> T3
-        T2 --> T4
-        T2 --> T5
-        T6 --- T1
-        T6 --- T3
-        T6 --- T4
-        T6 --- T5
+        subgraph CP1["渠道与协作"]
+            A1["安装配对与 Channel Registry\nTenant · Workspace · Channel · Membership"]
+            A2["Thread–Session Bridge\n多人 Steering · Checklist · 结果回帖"]
+            A1 --> A2
+        end
+
+        subgraph CP2["频道差异化配置"]
+            B1["Scope Graph\nDefault Root → Workspace → Channel"]
+            B2["Access Bundle Registry\nCredential · Repo · Domain\nPlugin · Bundle Instruction"]
+            B3["Effective Config Resolver\n标量覆盖 · 集合累加\n指令拼接 · Credential 最窄 Scope 胜出"]
+            B1 --> B3
+            B2 --> B3
+        end
+
+        subgraph CP3["团队长期状态与治理"]
+            C1["Context & Memory Topology\nThread/频道历史\nPublic Workspace / Private Channel Store"]
+            C2["Routine · Usage · Audit · RBAC\n持续工作 · Spend Limit\n统一审计 · 可靠性"]
+        end
+
+        B3 -->|"SessionLaunchSpec\n+ 配置来源快照"| A2
+        C1 --> A2
+        C2 --- A1
+        C2 --- B1
+        C2 --- B2
     end
 
-    CH --> T1
+    CH --> A1
+    CH --> A2
 
     subgraph MA["GLM Managed Agent｜复用执行底座"]
         direction TB
-        M1["Agent 定义与版本<br/>Model · Prompt · Tools/MCP<br/>Skills · Multi-agent"]
-        M2["Session 与 Agent Loop<br/>异步执行 · SSE/Webhook<br/>Steer · Interrupt · Budget"]
-        M3["Environment / Sandbox<br/>Bash · Files · Web · Code<br/>Artifact / Output"]
-        M4["运行基础设施<br/>Memory Store · Vault · Cron<br/>Trace · Outcome / Eval"]
-
-        M1 --> M2
-        M2 --> M3
+        M1["Agent Definition\nModel · Prompt · Tools/MCP · Skills"]
+        M2["Session & Agent Loop\nAsync · Event Stream · Steer · Interrupt · Budget"]
+        M3["Environment / Sandbox\nBash · Files · Web · Code · Artifact"]
+        M4["Runtime Primitives\nMemory Store · Vault · Cron · Trace / Eval"]
+        M1 --> M2 --> M3
         M4 --> M2
     end
 
-    T2 --> M1
-    T1 --> M2
-    T3 --> M4
-    T5 --> M4
-    M2 -. "进度 · 状态 · 确认 · 结果" .-> T1
+    A2 -->|"Create / Steer Session\n+ Context Pack"| M2
+    M2 -. "Progress · Confirmation · Result" .-> A2
+    C1 --> M4
+    C2 --> M4
 
-    subgraph EXT["企业数据与业务系统"]
-        direction TB
-        X1["GitHub / GitLab"]
-        X2["文档 / CRM / 数据仓库"]
-        X3["工单 / 监控 / 业务 API"]
-    end
+    P["Credential / Policy Gateway｜补建\nHost · Path · Method · Approval\n网络边界动态注入 · 默认拒绝"]
+    X["企业数据与业务系统\nGitHub/GitLab · Docs/CRM/DW\nTicket/Monitoring/Business API"]
 
-    M3 --> T4
-    T4 --> EXT
-
+    B2 --> P
+    M3 --> P --> X
