@@ -30,6 +30,19 @@
 - **C｜第三方真实截图 / 研究确认**：安全研究、集成文档等展示实际页面。
 - **D｜产品拆解项**：基于已确认能力拆出的 UI 状态 / 产品对象，用于竞品分析，不代表 Anthropic 官方使用同名。
 
+### 官方复核后的强制边界
+
+| Atlas 原判断 | 复核结论 |
+|---|---|
+| Open session 后可在 Claude 中继续任务 | **错误**：该页面只读，继续指导必须回原 Slack Thread |
+| Access Bundle = Identity + Tool + ... | **过度合并**：Bundle 包含 Credential、Repo、Domain、Plugin、Instruction；Agent Identity 独立存在 |
+| Org → Workspace → Channel Budget | **错误**：已确认的是组织总限额、默认频道限额、单频道限额和频道归因 |
+| Routine 支持通用 Webhook / Event Trigger | **未确认**：现有资料确认 Schedule、Channel Watch、PR Subscription |
+| Network events 是完整逐动作审计 UI | **错误**：它是可选的按小时 JSON 导出，不含 Git/MCP；没有统一 per-action log |
+| 不同 Channel 使用不同组织身份 | **表述不准**：同一组织级 Agent Identity，在不同 Scope 下解析出不同 Credential / Repo / Network 权限 |
+
+只有 A/B 可以直接写成 Claude Tag 产品事实；C 只能证明某个界面曾被第三方看到；D 只作为 Z Tag 待设计清单。
+
 ---
 
 # 一、最值得优先看的 Claude Tag UI
@@ -44,7 +57,7 @@
 | 6 | Access Bundle → Repository | GitHub Organization / Repository 范围 | A/C | ⭐⭐⭐⭐ |
 | 7 | Connect an app 弹窗 | Credential type、Allowed websites、Custom headers 等 | C | ⭐⭐⭐⭐ |
 | 8 | Channel → 绑定 Access Bundle | 当前 Channel 挂载已有 Bundle | C | ⭐⭐⭐⭐⭐ |
-| 9 | `Open session in Claude` | 从 Slack Thread 跳到 Claude 完整 Agent Session | A/B | ⭐⭐⭐⭐⭐ |
+| 9 | `Open session in Claude` | 打开只读 Session Trace；继续指导仍在 Slack Thread | A/B | ⭐⭐⭐⭐⭐ |
 | 10 | Audit → Scheduled work | Routine 列表、状态、上次/下次执行、Pause/Resume | B/C | ⭐⭐⭐⭐⭐ |
 | 11 | Audit → Memory | Scope Memory、查看/编辑/删除 | B/C | ⭐⭐⭐⭐⭐ |
 | 12 | Audit → Network events | 网络访问行为审计 | B/C | ⭐⭐⭐⭐ |
@@ -160,7 +173,7 @@ Access Bundle 是 Claude Tag 最值得研究的产品对象之一。
 
 它解决的问题不是“这个 Agent 有没有工具”，而是：
 
-> **在某个团队 Scope 下，Claude 以什么组织身份、携带什么 Credential、能访问哪些工具 / Repo / Domain / Plugin，并遵守什么 Instruction。**
+> **在某个团队 Scope 下，Claude 的组织级 Agent Identity 最终解析出哪些 Credential、Repo、Domain、Plugin 与 Instruction。**
 
 ## 4.1 Bundle 主界面
 
@@ -238,12 +251,13 @@ Access Bundle 是 Claude Tag 最值得研究的产品对象之一。
 
 ```text
 Access Bundle
-= Identity / Credential
-+ Tool
+= Credential
 + Repository
-+ Network Boundary
++ Domain / Network Boundary
 + Plugin
 + Instruction
+
+Agent Identity 独立于 Bundle；Connection 中的 Credential 指向其外部 Service Account。
 ```
 
 然后由 Workspace / Channel Scope 挂载。
@@ -291,13 +305,15 @@ Channel
 同一个 Claude Agent 在不同 Channel 中可以具有不同的：
 
 - 上下文；
-- 组织身份；
-- Credential；
+- 同一组织级 Agent Identity 下的有效 Credential；
+- Repository / Plugin；
 - Repository；
 - Network Access；
 - Instructions；
-- Trigger Policy；
-- Budget。
+- Interaction Policy（Mention / Ambient）；
+- Runtime 配置。
+
+预算不走该 Scope 继承树，而由独立 Usage / Budget Policy 管理。
 
 因此更准确的结构是：
 
@@ -390,16 +406,16 @@ Claude 的 Slack 回复中可以出现：
 134. Slack Thread → Claude Session 跳转。
 135. Slack Thread 与 Claude Session 映射。
 136. Claude Session Detail。
-137. Full Agent Workspace。
-138. 在 Claude 中继续任务。
+137. Read-only Session Trace。
+138. 返回原 Slack Thread 继续任务。
 
 ### 产品设计价值
 
 这是一个很值得复用的分层：
 
-> **Channel = 协作入口；Agent Session = 深度工作空间。**
+> **Channel / Thread = 协作与 Steering 入口；Claude Web Session = 只读透明度入口。**
 
-复杂任务不需要强行把所有工具调用、文件、执行状态、长上下文都塞进 Slack Message。
+复杂任务不需要把所有工具调用和执行细节塞进 Slack Message，但 Web 页面不承担继续对话。
 
 ---
 
@@ -463,7 +479,7 @@ Scheduled Trigger
 定时运行
 
 Event Trigger
-外部系统事件触发
+外部系统事件触发（仅作为 Z Tag 扩展；Claude Tag 通用 Webhook 未确认）
 ```
 
 ---
@@ -487,8 +503,8 @@ Claude Tag 支持通过自然语言安排未来或重复工作。
 160. Scheduled Claude Message。
 161. Routine Trigger。
 162. 查询当前 Channel Routines。
-163. Routine 执行结果回到 Channel。
-164. Routine 执行结果回到 Thread。
+163. Routine 执行结果回到创建它的 Channel。
+164. 具体是否新开 Thread 属于呈现细节，不能由现有资料泛化。
 
 Routine 应当被理解为一个持久化产品对象，而不是 Prompt 里的一句自然语言。
 
@@ -568,17 +584,12 @@ Claude Tag Audit 还覆盖 Network Events。
 
 对应 UI：
 
-192. Network Events Tab。
+192. Network Events Tab（仅在组织开通导出能力后出现）。
 193. Date Selector。
-194. Hour / Time Range Selector。
-195. Network Event Log。
-196. Request Domain / Host。
-197. Request Method。
-198. Execution Scope。
-199. Tool 来源。
-200. Credential 来源。
-201. Network Event Detail。
-202. JSON Export / Download。
+194. Hour Selector。
+195. Hourly JSON Export / Download。
+
+官方只确认按小时导出 Agent Proxy 出站调用；Git 与 MCP 流量不在导出中。逐事件详情页、Tool 来源、Credential 来源等更细 UI 均按 D 级待设计项处理。
 
 ### 产品含义
 
@@ -604,24 +615,19 @@ Shared Agent 使用组织资源，因此需要独立的成本治理。
 203. Usage 页面。
 204. Organization-wide Spending Limit。
 205. Default Channel Spending Limit。
-206. Workspace Spending Limit。
-207. Per-channel Spending Limit。
-208. Custom Limit。
-209. Channel Usage。
-210. Workspace Usage。
-211. Spend Breakdown。
-212. Spend Alert。
-213. Current Period Usage。
-214. Budget Progress。
-215. Scope Cost Attribution。
+206. Per-channel Spending Limit。
+207. Channel Usage / Spend Breakdown。
+208. Current Period Usage。
+
+Workspace Spending Limit、Workspace Usage 和 Session/Task 级产品归因未被当前官方资料确认。
 
 可以抽象成：
 
 ```text
-Org Budget
-→ Workspace Budget
-→ Channel / Scope Budget
-→ Session / Task Usage
+Organization Spend Limit
++ Default Channel Limit
++ Per-channel Override
+→ Channel Spend Attribution
 ```
 
 成本不能只有 Agent 总 Token 消耗，还应能映射到具体团队、Scope 和任务。
@@ -707,7 +713,7 @@ Workspace → Channel 的配置继承体系。
 
 ## 2. Access Bundle
 
-Identity / Credential / Repo / Domain / Plugin / Instructions 的统一能力包。
+Credential / Repo / Domain / Plugin / Instructions 的统一能力包；Agent Identity 单独建模。
 
 **价值**：把 Agent Definition 与运行权限解耦。
 
@@ -727,7 +733,7 @@ Channel 挂载既有 Access Bundle。
 
 协作 Channel 与完整 Agent Workspace 双界面。
 
-**价值**：协作入口与深度执行环境解耦。
+**价值**：协作入口与只读运行透明度解耦。
 
 ## 6. Ambient / Routine
 
@@ -759,18 +765,17 @@ Organization
 │   └── Channel / Scope
 │       ├── Agent Binding
 │       ├── Instructions
-│       ├── Trigger Policy
-│       ├── Access Bundle
-│       └── Spend Policy
+│       ├── Interaction Policy
+│       └── Access Bundle
 │
 ├── Agent Identity
-│   └── Access Bundle
-│       ├── Credentials
-│       ├── Tools
-│       ├── Repositories
-│       ├── Domains
-│       ├── Plugins
-│       └── Instructions
+│   └── Service Accounts / GitHub App / Credential Refs
+├── Access Bundle
+│   ├── Credentials
+│   ├── Repositories
+│   ├── Domains
+│   ├── Plugins
+│   └── Instructions
 │
 ├── Session
 │   └── Slack Thread Mapping
@@ -778,7 +783,10 @@ Organization
 ├── Routine
 ├── Memory
 ├── Audit Event
-└── Usage / Spend
+└── Budget Policy / Usage
+    ├── Organization Limit
+    ├── Default Channel Limit
+    └── Per-channel Override
 ```
 
 比起简单的：
@@ -888,7 +896,7 @@ Agent
 
 Claude Tag 的产品 UI 体系并不是“给 Slack 接一个 Claude Bot”，而是在 Slack 之上补出了一套完整的团队 Agent 产品层：
 
-> **Scope（在哪工作） + Shared Identity（以谁的身份） + Access Bundle（能访问什么） + Shared Session（团队如何共同指导） + Proactivity（什么时候主动工作） + Memory（长期知道什么） + Audit / Spend（组织如何治理）。**
+> **Scope（在哪工作） + Agent Identity（组织级身份） + Access Bundle（各 Scope 的有效资源权限） + Shared Thread Session（团队如何共同指导） + Ambient / Routine（什么时候响应） + Memory（长期知道什么） + Audit / Budget（组织如何治理）。**
 
 对应到 Z Tag：
 

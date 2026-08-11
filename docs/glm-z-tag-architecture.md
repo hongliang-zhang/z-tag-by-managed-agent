@@ -1,242 +1,424 @@
-# 基于 GLM Managed Agent 构建 Z Tag
+# 基于 GLM Managed Agent 构建 Z Tag（截图复核版）
 
-## 1. 建设假设
+## 1. 架构修正
 
-本方案假设 GLM Managed Agent 按 Claude Managed Agents 对标，已经或计划具备：Agent 定义与版本、长时间运行 Session、Event Stream、Steer / Interrupt、Sandbox、工具调用、Memory、Vault、定时部署、预算、结果评测和运行可观测性。
+上一版把频道抽象为 `Team Agent Profile`，容易让人理解成“每个频道创建一个独立 Agent”。根据真实产品截图和官方 Scope 规则，建议改成：
 
-在此基础上，Z Tag 不重新实现 Agent Runtime，而是在其上构建团队协作、身份权限、上下文、治理和渠道产品层。
+> 一个组织级 Z Tag Agent + Scope Graph + Access Bundle Binding + Effective Config Resolver + 每 Thread 一个 Managed Agent Session
 
-## 2. Managed Agent 可直接复用的能力
+频道不是 Agent 的容器，而是一个运行 Scope。Scope 解析模型、环境、能力包、指令与交互策略；Memory、Routine 和 Budget 使用各自独立的拓扑或策略，再共同形成一次运行的输入。
 
-| 能力域 | 可复用能力 | Z Tag 的调用方式 |
-|---|---|---|
-| Agent 定义 | Model、Prompt、Tools / MCP、Skills、Multi-agent、版本 | Scope Engine 选择有效 Agent 版本 |
-| Session / Agent Loop | 异步执行、SSE / Webhook、Steer、Interrupt、Budget | Thread Router 创建或恢复 Session |
-| Environment | Sandbox、Bash、Files、Web、Code | 任务执行与产物生成 |
-| Artifact | Session 文件、结构化输出、外部产物引用 | 结果卡片与频道回帖 |
-| Memory 原语 | Memory Store、检索与写入接口 | 团队 Memory Service 按 Scope 编排 |
-| Credential 原语 | Vault、Secret 管理、动态凭证 | Credential Gateway 受控注入 |
-| Proactivity 原语 | Cron、Webhook、Scheduled Deployment | Routine Compiler 编译为运行任务 |
-| Evaluation | Trace、Outcome、Eval / Backtest | 团队场景评测与持续优化 |
+这意味着 GLM Managed Agent 与 Z Tag 的接口也不应只是 `agent_id`，而应是一个版本化的 `SessionLaunchSpec`。
 
-## 3. Managed Agent 之外必须补建
+## 2. 建设假设
 
-| 模块 | 为什么底座不够 | 推荐实现 | 优先级 |
+假设 GLM Managed Agent 已经或计划具备：
+
+- Agent Definition 与版本。
+- 异步/长时间运行 Session。
+- Event Stream、Steer、Interrupt。
+- 隔离 Sandbox、Bash、Files、Web、Code Execution。
+- Tool / MCP / Skill 调用。
+- Artifact 和结构化结果。
+- Memory Store、Vault、Cron / Webhook 原语。
+- Session Budget、Trace、Outcome / Eval。
+
+这些能力可以“把一次任务做完”，但不会自动生成组织、Workspace、Channel、多人协作、权限继承和团队治理。
+
+## 3. Managed Agent 外必须补建什么
+
+| 模块 | 为什么不属于 Runtime 原语 | 怎么构建 | 优先级 |
 |---|---|---|---|
-| 渠道接入网关 | Runtime 不理解 Slack / 飞书 Thread | 统一 Channel Event Schema；首期飞书 / Slack Adapter | P0 |
-| Thread–Session Router | Runtime 不知道多人在哪个 Thread 协作 | 持久化 `tenant/workspace/channel/thread/session` 映射 | P0 |
-| 多人协作控制 | Session API 不等于多人协作体验 | 并发排序、Steer、Interrupt、编辑/删除语义 | P0 |
-| Scope 配置引擎 | Agent 配置通常以 Agent / Session 为单位 | 组织→Workspace→Channel 继承、覆盖、版本快照 | P0 |
-| Team Agent Profile | 频道需要稳定的 Agent 身份和职责 | 名称、头像、职责、指令、模型、Skill、环境、版本 | P0 |
-| Team Agent Identity | Vault 只是 Credential 原语 | 服务账号、Access Bundle、频道归属、撤销与审计 | P0 |
-| Credential / Policy Gateway | 仅存 Secret 无法阻止越权与外泄 | 默认拒绝出口；Host / Path / Method 白名单；动态注入 | P0 |
-| 频道上下文服务 | Runtime 不知道频道历史和成员关系 | 历史抓取、搜索、置顶、文件、消息权限过滤 | P0 |
-| 团队 Memory 拓扑 | Memory Store 不理解公共/私有频道边界 | Workspace Store + Channel Store + 来源和版本治理 | P0 / P1 |
-| Routine 产品层 | Cron API 无法表达“监听频道、追 PR” | 自然语言 Routine → Cron / Webhook / Channel Watch | P1 |
-| 结果呈现层 | Agent Event 不等于良好频道体验 | Checklist、卡片、文件、PR、Trace、主动 @人 | P0 |
-| 管理后台 | Runtime Console 面向开发者 | 配对、频道配置、连接器、模型、Skill、试运行 | P0 |
-| 企业治理 | Session 权限不是组织治理 | RBAC、访客/外部群策略、禁用、审批、保留策略 | P0 |
-| 成本与用量 | Session Budget 不能代替组织额度 | Org / Workspace / Channel Ledger、硬限额、告警 | P0 |
-| 全链路审计 | Runtime Trace 缺少团队发起链路 | 人→消息→Session→Tool Call→外部对象 | P0 |
-| 可靠性控制 | 渠道与 Webhook 会重试、乱序 | 幂等、去重、状态对账、补偿、死信队列 | P0 |
+| Channel Installation & Pairing | Runtime 不理解 Slack/飞书租户和 App 安装 | OAuth/安装回调、连接码、组织与 Workspace 映射、断开/重连 | P0 |
+| Channel Registry | Runtime 不知道频道 ID、私密性、App Membership、外部共享状态 | 统一 Workspace/Channel 元数据与同步任务 | P0 |
+| Thread–Session Bridge | Session ID 不等于渠道 Thread | 持久化 Thread Binding、幂等创建、Steer/Interrupt、恢复与回帖句柄 | P0 |
+| Scope Graph | Agent 配置不是组织→Workspace→Channel 的配置树 | Root/Workspace/Channel 节点、父子关系、版本和变更审计 | P0 |
+| Effective Config Resolver | 不同字段的继承规则不同 | 标量覆盖、集合累加、指令拼接、Credential 冲突优先级、配置快照 | P0 |
+| Access Bundle Registry | Vault Secret 不等于可复用权限包 | Bundle 组合 Credential、Repo、Domain、Plugin、Instruction；多 Scope 绑定 | P0 |
+| Agent Identity Registry | 个人 Token 不能作为团队 Agent 身份 | 每外部系统独立 Service Account、GitHub App、Credential Ref、轮换/撤销 | P0 |
+| Credential / Network Proxy | Sandbox 内存 Secret 无法防止泄漏和越权 | Host/Path/Method 策略、网络边界动态注入、默认拒绝、事件记录 | P0 |
+| Channel Context Service | Runtime 不知道 Thread/频道历史与成员可见性 | 拉取、索引、裁剪、文件解析、权限标签和 Context Pack | P0 |
+| Team Memory Topology | Memory Store 不知道公共/私有频道规则 | Workspace Store、Private Channel Store、Markdown 文件、来源/编辑/删除 | P1 |
+| Channel Interaction Renderer | Agent Event 不等于渠道原生体验 | 接单、Checklist、状态、确认、文件/PR 卡片、只读 Session Trace 深链、主动 @人 | P0 |
+| Routine Product Layer | Cron 不能表达“本频道持续追这件事” | 对标 Schedule / Channel Watch / PR Subscription；绑定 Channel、Cursor、Owner 和有效权限；Webhook 作为 Z 扩展 | P1 |
+| Governance Console | Runtime Console 面向开发者，不理解团队 Scope | 配对向导、Scope 树、Bundle 库、Access Summary、Memory/Routine/Usage | P0/P1 |
+| Usage & Spend Control | Session Budget 无法限制组织产品消费 | Org 总限额、Default Channel Limit、Per-channel Limit、频道归因、预警；不虚构 Workspace Budget | P0 |
+| Unified Audit Ledger | Runtime Trace 缺少渠道发起人和外部对象 | Message→Session→Tool→External Object 统一事件关联；外部日志回链 | P1 |
+| Channel Reliability | Slack/飞书 Event 会重试、乱序和丢回调 | Event ID 幂等、Outbox、Cursor、补偿、死信、状态对账 | P0 |
 
-## 4. 产品架构
+## 4. Z Tag 产品架构
+
+### 4.1 六个产品面
+
+| 产品面 | 主要用户 | 核心能力 |
+|---|---|---|
+| 安装与配对 | Owner / IT | 连接 Claude Organization 与 Slack/飞书 Workspace，检查权限和频道状态 |
+| Access Bundle Library | Owner / 系统管理员 | 创建、复用、轮换 Credential/Repo/Domain/Plugin/Instruction 组合 |
+| Scope Console | Owner / Admin | 配置 Root、Workspace、Channel，查看继承来源、差异和 Effective Access |
+| Channel Experience | 团队成员 | `@Agent`、Ambient 回复、Thread 多人协作、Checklist、Steer、结果回帖、Configure、只读 Trace |
+| Memory & Routine | 频道成员 / Owner | 自然语言维护长期记忆和持续工作，后台查看/编辑/停用 |
+| Governance & Usage | 安全 / 财务 / 运营 | 权限、审计、Spend limit、频道用量、告警和可靠性 |
+
+### 4.2 不建议把“自定义 Agent”混进第一版
+
+如果严格对标 Claude Tag，第一版应提供一个统一的 Z Tag Agent，由 Scope 决定不同频道的能力与行为。名称、头像、角色模板、多个 Agent 实例属于 Z Tag 的扩展产品方向，不应成为 Scope/权限底座的前置依赖。
+
+后续若支持一个频道挂多个 Agent，也应复用同一套结构：
+
+```text
+ChannelScope + AgentDefinitionRef + BundleBindings + InstructionOverlay
+```
+
+而不是为每个 Agent 复制一套 Connector、Memory、Audit 和渠道网关。
+
+## 5. 统一架构
 
 ```mermaid
 flowchart TB
-    A["团队入口<br/>Slack · 飞书 · Teams<br/>@Mention · Thread · DM · Panel"]
+    U["团队成员 · Owner · Admin"] --> S
 
-    subgraph Z["Z Tag 团队级产品层｜新增"]
-        direction TB
-        Z1["渠道与协作<br/>Event Gateway · Thread Router<br/>多人 Steering · 结果回帖"]
-        Z2["Agent Profile 与 Scope<br/>Org → Workspace → Channel<br/>配置继承 · 覆盖 · 版本快照"]
-        Z3["上下文与团队记忆<br/>频道历史 · Workspace 搜索<br/>公共/私有 Memory"]
-        Z4["身份、权限与凭证<br/>Agent Identity · Access Bundle<br/>Policy Gateway · 即时审批"]
-        Z5["主动工作<br/>Routine · Cron · Channel Watch<br/>Webhook · 主动 @人"]
-        Z6["企业治理与运营<br/>RBAC · Audit · 成本限额<br/>用量分析 · 可靠性"]
+    subgraph S["协作与透明度入口"]
+        C["Slack / 飞书 / Teams<br/>Workspace · Channel · Thread · DM<br/>@Mention · Ambient · Routine"]
+        V["Read-only Session Trace<br/>完整记录 · Tool Calls · Artifact"]
+        C -. "Open session" .-> V
     end
 
-    subgraph M["GLM Managed Agent｜复用"]
-        direction TB
-        M1["Agent 定义与版本<br/>Model · Prompt · Skills<br/>Tools/MCP · Multi-agent"]
-        M2["Session 与 Agent Loop<br/>Async Run · Event Stream<br/>Steer · Interrupt · Budget"]
-        M3["Environment 与产物<br/>Sandbox · Bash · Files<br/>Web · Code · Artifact"]
-        M4["运行基础能力<br/>Memory Store · Vault · Cron<br/>Trace · Outcome · Eval"]
+    subgraph Z["Z Tag 团队产品与控制面｜Managed Agent 外补建"]
+        A["安装配对与 Channel Registry<br/>Tenant · Workspace · Channel · Membership"]
+        B["Scope Graph + Interaction Policy<br/>Root → Workspace → Channel<br/>Model · Environment · Instructions · Ambient"]
+        I["Agent Identity + Access Bundle Registry<br/>Service Account / GitHub App<br/>Credential · Repo · Domain · Plugin"]
+        R["Effective Config Resolver<br/>标量覆盖 · 集合累加 · 指令拼接<br/>Credential 最窄 Scope 胜出"]
+        T["Thread–Session Bridge + Renderer<br/>多人 Steering · Checklist · Result<br/>只读 Trace 深链"]
+        L["Context · Memory · Routine<br/>Thread / Channel Context<br/>Public Workspace / Private Channel Store<br/>Schedule · Watch · PR Subscription"]
+        G["Governance Plane<br/>Human→Agent RBAC · Agent→Resource Policy<br/>Org / Default Channel / Per-channel Budget<br/>Unified Audit · Reliability"]
+
+        A --> B
+        B --> R
+        I --> R
+        R -->|"SessionLaunchSpec + Provenance"| T
+        L --> T
+        G --- A
+        G --- I
+        G --- T
     end
 
-    E["企业系统<br/>GitHub/GitLab · 文档/CRM/数仓<br/>工单/监控/业务 API"]
+    C --> A
+    C --> T
+    T -. "Progress · Confirmation · Result" .-> C
+    T --> V
 
-    A --> Z1
-    Z1 --> Z2
-    Z2 --> Z3
-    Z2 --> Z4
-    Z2 --> Z5
-    Z6 --- Z1
-    Z6 --- Z3
-    Z6 --- Z4
-    Z6 --- Z5
-    Z2 --> M1
-    Z1 --> M2
-    Z3 --> M4
-    Z5 --> M4
-    M1 --> M2 --> M3
-    M4 --> M2
-    M3 --> Z4 --> E
-    M2 -. "进度 · 确认 · 结果" .-> Z1
+    subgraph M["GLM Managed Agent｜复用执行底座"]
+        M1["Agent Definition<br/>Model · Prompt · Tools/MCP · Skills"]
+        M2["Session & Agent Loop<br/>Async · Event Stream · Steer · Interrupt · Budget"]
+        M3["Environment / Sandbox<br/>Bash · Files · Web · Code · Artifact"]
+        M4["Runtime Primitives<br/>Memory Store · Vault · Cron/Webhook · Trace/Eval"]
+        M1 --> M2 --> M3
+        M4 --> M2
+    end
+
+    T -->|"Create / Steer + Context Pack"| M2
+    M2 -. "Runtime Events" .-> T
+    L --> M4
+    G --> M4
+
+    P["Credential / Policy Gateway｜补建<br/>Host · Path · Method · Approval<br/>网络边界动态注入 · 默认拒绝"]
+    X["企业系统<br/>GitHub/GitLab · Docs/CRM/DW<br/>Ticket/Monitoring/Business API"]
+
+    I --> P
+    M3 --> P --> X
 ```
 
-## 5. 技术架构
+## 6. Scope 与 Effective Config Resolver
 
-### 5.1 核心服务
-
-| 服务 | 核心职责 | 关键数据 |
-|---|---|---|
-| Channel Adapter | 渠道鉴权、事件转换、消息发送 | 原始事件、统一事件、回帖句柄 |
-| Tenant Resolver | 解析租户、Workspace、Channel、用户 | 渠道安装关系、组织成员映射 |
-| Scope Engine | 计算有效 Agent 配置并生成快照 | 配置树、覆盖规则、版本快照 |
-| Thread Router | 创建、查找、恢复、终止 Session | Thread–Session 映射、状态、幂等键 |
-| Context Service | 获取并裁剪频道、搜索、文件上下文 | 消息索引、权限标签、Context Pack |
-| Team Memory Service | 按 Scope 管理读写、晋升、纠正、删除 | Memory、来源、可见域、版本 |
-| Routine Service | 创建和编排定时、监听、订阅任务 | Trigger、Schedule、Cursor、Owner |
-| Identity & Access | 解析 Agent 与请求者的有效权限 | Agent Identity、Access Bundle、RBAC |
-| Policy Gateway | 控制网络出口、凭证注入和审批 | Egress Policy、Secret Ref、Approval |
-| Event Bridge | 将运行事件转成渠道原生体验 | Checklist、Progress、Confirmation、Result |
-| Usage Ledger | 按组织/频道/Agent/Session 计量 | Tokens、工具成本、预算、告警 |
-| Audit Service | 还原完整的人—Agent—外部动作链路 | Actor、Message、Run、Tool、External Object |
-
-### 5.2 请求时序
-
-```mermaid
-sequenceDiagram
-    participant U as 团队成员
-    participant C as 渠道网关
-    participant Z as Z Tag 控制面
-    participant M as Managed Agent
-    participant P as Policy Gateway
-    participant E as 企业系统
-
-    U->>C: @Agent + 任务 / Thread 回复
-    C->>Z: 统一事件 + 渠道身份
-    Z->>Z: 解析租户、Scope、Session、上下文
-    Z->>M: Create / Steer Session
-    M-->>Z: Checklist / Progress
-    Z-->>C: 渠道原生状态更新
-    M->>P: 外部工具请求
-    P->>P: 身份、权限、策略与审批校验
-    P->>E: 动态注入凭证后执行
-    E-->>M: 结果
-    M-->>Z: Artifact / Final / Trace
-    Z-->>C: 回帖并写入审计、用量与记忆
-    C-->>U: 结果与可继续协作的 Thread
-```
-
-### 5.3 核心数据模型
+### 6.1 Scope 数据结构
 
 ```text
-Tenant
-├── Workspace
-│   ├── Channel
-│   │   ├── TeamAgentProfile
-│   │   ├── ScopeConfigVersion
-│   │   ├── ThreadSessionBinding
-│   │   ├── ChannelMemory
-│   │   └── Routine
-│   └── WorkspaceMemory
-├── AgentIdentity
-├── AccessBundle
-├── UsageBudget
-└── AuditPolicy
+Scope
+├── id
+├── tenant_id
+├── type: ROOT | WORKSPACE | CHANNEL
+├── parent_scope_id
+├── channel_installation_id
+├── external_workspace_id
+├── external_channel_id
+├── display_name / description
+├── scalar_config_version
+└── status
 ```
+
+Scope 自身不保存 Credential 内容，只保存 Bundle Binding 和本级行为配置。
+
+### 6.2 四种解析语义
+
+| 语义 | 适用字段 | 算法 |
+|---|---|---|
+| Last non-null wins | Tag version、Default model、Environment、自动回复等 | 从 Root 到 Channel 扫描，最后一个显式值生效 |
+| Additive union | Access Bundle、Repository、Plugin、Domain、Allow rule | Root + Workspace + Channel 去重合并 |
+| Ordered concat | Scope Custom Instructions、Bundle Instructions | 依层级和来源稳定排序后拼接，保留 Provenance |
+| Narrowest wins on conflict | 同 Host Credential / Network rule | Channel > Workspace > Root；同 Scope 冲突直接报错或强告警 |
+
+### 6.3 Resolver 输出
+
+```text
+SessionLaunchSpec
+├── agent_definition_ref
+├── effective_model
+├── environment_ref
+├── plugin_and_skill_refs[]
+├── repository_grants[]
+├── domain_allow_rules[]
+├── credential_route_rules[]
+├── ordered_instructions[]
+├── auto_mode_allow_rules[]
+├── memory_read_scopes[]
+├── memory_write_scope
+├── run_budget_cap / budget_policy_ref
+├── interaction_policy
+├── source_scope_versions[]
+└── spec_hash
+```
+
+必须保留每个结果的来源 Scope 和版本。管理后台的 Access Summary 应支持展开为：
+
+```text
+GitHub / repo-a
+← engineering-write bundle
+← #platform channel scope
+```
+
+这样管理员才能解释“这个频道为什么有这项权限”。
+
+### 6.4 配置何时生效
+
+- 新 Thread：使用最新 Effective Config 创建 Session。
+- 已有 Thread：保持启动时的 Model、Plugin、Skill、Instruction 快照。
+- Credential 轮换/撤销：安全变更应立即作用于所有 Session，不被旧快照固化。
+- 新增 Connection：可立即通过 Proxy 生效，但 Agent 的工具认知可能需要新 Thread 或显式提示。
+
+## 7. Access Bundle 与 Agent Identity
+
+### 7.1 Bundle 模型
+
+```text
+AccessBundle
+├── name / description / version
+├── credential_refs[]
+├── repository_grants[]
+├── domain_rules[]
+├── plugin_refs[]
+├── bundle_instructions[]
+└── scope_bindings[]
+```
+
+Bundle 应按能力命名和复用，例如：
+
+- `data-readonly`
+- `github-write-staging`
+- `monitoring-prod-read`
+- `salesforce-account-read`
+
+Scope Console 只负责“绑定哪些 Bundle”，Credential 的创建、轮换和外部权限范围在 Bundle/Identity 管理中完成。
+
+### 7.2 Agent Identity 模型
+
+Claude Tag 的 Agent Identity 不是一个万能 Token，而是一组外部身份：Slack App、GitHub App、Google 虚拟用户、Datadog Service Account 等。
+
+Z Tag 建议：
+
+```text
+AgentIdentity
+└── ServicePrincipal[system]
+    ├── external_account_id
+    ├── credential_ref
+    ├── allowed_hosts / paths / methods
+    ├── external_role / resource_scope
+    ├── rotation_policy
+    └── audit_attribution
+```
+
+Credential 只存在 Vault/Proxy，不进入模型上下文或 Sandbox。
+
+## 8. Channel Context、Memory 与 Session 必须分离
+
+### 8.1 Context Pack
+
+每次请求动态构建：
+
+- 当前 Thread 全量或裁剪消息。
+- 当前频道近期历史、置顶、文件和链接。
+- 可选 Workspace 搜索结果。
+- 按隐私规则读取的 Memory 文件。
+- 请求者、频道成员和权限标签。
+
+### 8.2 Memory 拓扑
+
+```text
+WorkspaceMemoryStore
+├── public-channel notes / shared facts
+└── Channel indexes
+
+PrivateChannelMemoryStore[channel_id]
+└── private notes only
+```
+
+规则：
+
+- 公共频道读写 Workspace Store，可保留 Channel 来源。
+- 私有频道只读 Workspace 公共内容，写入独立 Private Store。
+- 不建立组织级共享 Memory。
+- DM 使用个人 Store，不复用团队 Bundle 或团队 Memory。
+- Memory 用于短小稳定事实；长 Playbook 放 Repo/Knowledge Base/Skill。
+
+### 8.3 Thread Session
 
 `ThreadSessionBinding` 至少包含：
 
 ```text
 tenant_id
+installation_id
 workspace_id
 channel_id
 thread_id
-agent_profile_id
 managed_agent_session_id
-effective_config_version
+session_launch_spec_hash
 requester_id
+participant_ids[]
 status
-last_event_cursor
+last_channel_event_cursor
+last_runtime_event_cursor
 created_at / updated_at / expires_at
 ```
 
-## 6. 三个关键架构选择
+Session 负责一次任务连续协作；Memory 负责跨 Session 的频道长期状态。不要把频道所有历史塞入一个永久 Session。
 
-### 6.1 共享 Agent Identity 采用混合权限模型
+## 9. 核心技术服务
 
-如果只按 Agent 服务账号权限执行，频道成员可能间接访问本人无权访问的数据。建议：
+| 服务 | 核心职责 | 关键数据/输出 |
+|---|---|---|
+| Channel Adapter | 渠道鉴权、事件转换、消息发送 | UnifiedChannelEvent、ReplyHandle |
+| Installation Service | App 安装、连接码、Workspace 配对 | Installation、Tenant Mapping |
+| Channel Registry | Workspace/Channel/Member 同步 | Privacy、Membership、External Share |
+| Scope Graph Service | 配置树、版本、Bundle Binding | ScopeVersion、Binding |
+| Effective Config Resolver | 计算并解释最终运行配置 | SessionLaunchSpec、Provenance、Diff |
+| Access Bundle Service | 资源包创建、复用、轮换 | BundleVersion、CredentialRef、RepoGrant |
+| Thread–Session Bridge | Session 创建/恢复/Steer 与幂等 | ThreadSessionBinding、Event Cursor |
+| Context Service | 构建 Thread/Channel/Workspace 上下文 | ContextPack、Permission Labels |
+| Team Memory Service | 文件化记忆、读写拓扑和治理 | MemoryFile、Store、Source、Version |
+| Routine Service | 定时、监听、订阅和持续跟进 | Trigger、Schedule、Cursor、Owner |
+| Interaction Renderer | 渠道 Checklist、确认、Artifact、只读 Trace 深链 | Channel Message State |
+| Policy Gateway | 网络出口、凭证注入、审批 | RouteRule、Approval、NetworkEvent |
+| Budget Policy Service | 组织总限额、默认频道限额、单频道覆盖 | BudgetPolicy、Run Cap、Attribution |
+| Usage Ledger | 组织/频道/Session 计量 | Spend、Budget、Alert |
+| Audit Ledger | 关联发起人、Session、Tool 与外部动作 | Trace Link、External Object、Attribution |
 
-```text
-实际可执行权限
-= Agent Identity 权限
-∩ Channel Scope
-∩ 请求者权限（敏感操作）
-∩ Runtime 风险策略
+## 10. 请求时序
+
+```mermaid
+sequenceDiagram
+    participant U as 团队成员
+    participant C as Channel Adapter
+    participant Z as Z Tag Control Plane
+    participant M as GLM Managed Agent
+    participant P as Policy Gateway
+    participant E as 企业系统
+
+    U->>C: @Z + 顶层任务 / Thread 回复
+    C->>Z: Unified event + Tenant/Channel/Thread
+    Z->>Z: Resolve Scope + Build Context Pack
+    Z->>Z: Compile and snapshot SessionLaunchSpec
+    Z->>M: Create Session / Steer Session
+    M-->>Z: Checklist / Progress / Confirmation
+    Z-->>C: 渠道原生状态更新
+    M->>P: Tool / Network request
+    P->>P: Resolve credential + policy + approval
+    P->>E: Inject credential at egress
+    E-->>M: Result
+    M-->>Z: Artifact / Final / Trace
+    Z->>Z: Usage + Audit + optional Memory write
+    Z-->>C: Reply to original Thread
+    C-->>U: 团队可继续协作的结果
 ```
 
-- 低风险读操作：可使用共享 Agent Identity。
-- 写入、删除、发布、付款等操作：校验请求者权限或要求即时审批。
-- 高敏数据：Agent Identity 和用户身份必须同时满足。
+## 11. 权限模型：对标与增强分开
 
-### 6.2 Session 与 Memory 解耦
+### 11.1 Claude Tag 当前模式
 
-- Thread Session：一次任务的连续协作。
-- Channel Memory：频道长期偏好、决策和工作状态。
-- Workspace Memory：跨公共频道可复用的组织知识。
-- Skill / Knowledge Base：稳定、长篇、可审查的规则和方法。
+频道内使用 Agent Service Account。任何频道成员都可以让 Claude 使用该频道解析出的权限；并不天然要求请求者本人也拥有外部系统权限。
 
-不要把所有频道历史塞进永久 Session；这样会造成成本、污染、权限和可维护性问题。
+### 11.2 GLM 建议的混合模式
 
-### 6.3 Runtime Budget 与产品额度分层
+```text
+Effective Action Permission
+= Agent Identity permission
+∩ Effective Channel Scope
+∩ Runtime policy
+∩ Requester/JIT approval（仅敏感动作）
+```
 
-- Managed Agent Budget：限制单次 Session 的执行时长、Token、工具和环境成本。
-- Z Tag Org / Channel Limit：限制团队整体产品成本，并提供硬限额、预警和分摊。
+- 低风险读取：可直接使用共享 Agent Identity。
+- 写入、删除、发布：校验请求者权限或即时审批。
+- 高敏数据：Agent Identity 与请求者授权双重满足。
+- Routine：记录创建者，但运行时仍使用频道当前有效权限；权限撤销应立即停止后续运行。
 
-两者需要分别计量，再在 Usage Ledger 中统一归集。
+这属于 Z Tag 的增强设计，不应写成 Claude Tag 已有事实。
 
-## 7. 建设分期
+### 11.3 两类权限分开治理
 
-### Phase 0：团队可用闭环
+- **Human → Agent**：谁能调用、配置、编辑频道指令、创建 Routine。
+- **Agent → Resource**：Agent Identity 通过哪些 Bundle、Credential 与网络规则访问外部资源。
 
-目标：一个团队能在飞书或 Slack 频道内稳定地共同使用 Agent。
+二者必须分别计算，再在敏感动作处通过 Requester / JIT Approval 汇合。
 
-- Channel Adapter + 统一事件模型。
-- Thread–Session Router + 多人 Steering。
-- Team Agent Profile + Scope Engine。
-- 频道上下文服务。
-- Agent Identity、Access Bundle、Policy Gateway。
-- Checklist、确认、结果回帖。
-- RBAC、审计、基础用量和可靠性。
+## 12. 治理与审计的真实缺口
 
-验收重点：任务串线率、重复执行率、Session 恢复成功率、权限拦截率、外部写操作可追溯率。
+Claude Tag 后台当前明确提供 Scheduled work、Memory、Network events；逐动作归因还分散在 Slack Thread、GitHub 回链与各外部 Service Account 日志。
 
-### Phase 1：持续负责
+Z Tag 应补建统一 Audit Ledger：
 
-目标：Agent 从被动响应升级为持续维护工作。
+```text
+Human actor
+→ Channel message
+→ Effective config snapshot
+→ Managed Agent session
+→ Tool/network action
+→ Credential route
+→ External object
+→ Result message
+```
 
-- Workspace / Channel Memory 与治理。
-- Routine：Cron、频道监听、Webhook、业务订阅。
-- 主动 `@人`、阻塞跟踪和周期汇报。
-- 频道级用量分析、预算和告警。
-- 管理后台与试运行环境。
+它既是安全能力，也是问题诊断和效果评测的基础数据资产。
 
-### Phase 2：平台化与规模化
+## 13. 建设分期
 
-目标：可复用地创建、发布和运营不同团队 Agent。
+### Phase 0：频道内可共同完成任务
 
-- Team Agent 模板和市场。
-- 跨渠道统一 Agent Profile。
-- 更细粒度的用户身份 Overlay 与 JIT Credential。
-- 自动评测、问题诊断、Skill 改写、回测和回归。
-- Agent / Skill / Routine 的灰度发布与效果分析。
+- Slack/飞书 Installation + Channel Registry。
+- Root/Workspace/Channel Scope Graph。
+- Access Bundle + Agent Identity + Policy Gateway。
+- Effective Config Resolver + Access Summary。
+- Thread–Session Bridge + Checklist/Result Renderer。
+- Channel Context、基础 RBAC、Usage、幂等和补偿。
 
-## 8. 最终产品边界
+验收指标：重复执行率、Thread 串线率、Session 恢复成功率、配置解析正确率、权限拦截率、回帖成功率。
 
-> GLM Managed Agent 负责执行：模型、Session、Agent Loop、Sandbox、工具、Memory / Vault 原语和评测。
+### Phase 1：持续负责且可治理
 
-> Z Tag 负责团队产品：渠道、多人协作、Scope、团队上下文与记忆、Agent Identity、主动工作、企业治理和商业化。
+- Public/Private Memory Topology 与文件治理。
+- Routine：Schedule、Channel Watch、PR Subscription；Webhook / 外部业务事件作为 Z Tag 扩展。
+- 主动 @人、阻塞跟踪、周期汇报。
+- 统一 Audit Ledger、Channel Usage、Spend limit、告警。
+- Channel Configure 页面与成员可编辑边界。
 
+### Phase 2：平台化扩展
+
+- 多 Agent Definition 与频道挂载，但复用同一 Scope/Bundle 底座。
+- Agent/Bundle/Scope 模板与市场。
+- User Overlay、JIT Credential、细粒度审批。
+- Eval→诊断→Skill 改写→回测→回归闭环。
+- Scope、Bundle、Skill、Routine 灰度发布与效果分析。
+
+## 14. 最终产品边界
+
+> GLM Managed Agent 负责：Session、Agent Loop、Sandbox、Tool、Artifact、Memory/Vault/Cron 等运行原语。
+
+> Z Tag 负责：渠道安装、Scope Graph、Access Bundle、Agent Identity、Effective Config、Thread 多人协作、团队 Context/Memory、Routine、治理和商业化。
