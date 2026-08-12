@@ -1,6 +1,6 @@
 # Z Tag 配置 Demo 技术方案
 
-> 状态：v0.7，已关闭放行复审剩余的 Scenario override 契约缺口，等待最终复审。基线为 [`demo-product-plan.md`](demo-product-plan.md)。
+> 状态：v0.7，最终独立复审通过（P0=0、P1=0），Demo 已完成构建、浏览器验收与发布。基线为 [`demo-product-plan.md`](demo-product-plan.md)。
 
 ## 1. 技术目标
 
