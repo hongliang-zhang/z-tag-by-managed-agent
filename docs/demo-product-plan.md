@@ -1,6 +1,6 @@
 # Z Tag 配置 Demo 产品方案（Claude Tag 对标版）
 
-> 状态：v0.2，产品方案已确认并完成独立 Review。Review 结论为 `pass with changes`；P0 问题已关闭，可进入技术方案。
+> 状态：v0.3，产品方案已确认并完成本轮独立 Review。Review 结论为 `pass with changes`；冲突校验层级等 P0/P1 已关闭，可进入技术方案。
 
 ## 1. Demo 要回答什么
 
@@ -20,7 +20,7 @@ Demo 需要让评审者在 3–5 分钟内看懂三件事：
 
 - Owner / IT 管理员：首版唯一主视角；创建 Access Bundle、绑定 Scope、控制模型、环境、网络和高风险权限。
 - Admin：次要只读/受限编辑视角；可维护已有 Bundle 的 Credentials 与 Domains，不能创建或绑定 Bundle。
-- Channel member：在未被 Block 时维护本频道 Instructions，并在 Thread 中使用 Agent；首版不单独虚构 `Channel Admin` 角色。
+- Channel member：仅当其同时是组织成员，且 Channel member edits 未被 Block 时，才可维护本频道 Instructions；非组织成员只能按频道策略使用与查看。首版不单独虚构 `Channel Admin` 角色。
 
 ### 固定演示故事
 
@@ -146,7 +146,9 @@ AND method in [GET, POST]
 校验状态：
 
 - Host 为空：不能保存。
-- 同 Scope 出现同 Host 的多个 Credential：显示 Z Tag safety enhancement 警告并阻止提交；Claude Tag 官方仅建议避免这种配置，没有确认阻止保存。
+- Connection 保存阶段只校验本 Bundle 内重复 Host 与字段合法性；未绑定 Bundle 没有 Scope 上下文，不在此阶段误判 Scope 冲突。
+- Attach Bundle 到 Scope 时运行 Resolver：若目标 Scope 已直接绑定的其他 Bundle 对同 Host 提供 Credential，则作为 Z Tag safety enhancement 阻止绑定。
+- 编辑已绑定 Bundle 时，对全部 Used in scopes 进行保存前预检；若会产生同 Scope 同 Host 冲突，原子阻止保存并列出受影响 Scope。跨 Default / Workspace / Channel 的同 Host 覆盖合法，仍按 Narrowest scope wins。
 - Public Channel + elevated Credential：绑定时触发 Z Tag safety enhancement 二次确认。
 - Secret 不回显、不出现在 Access Summary。
 
@@ -211,13 +213,13 @@ Effective access changes
 - 使用 Channel Credential。
 - 标注 Narrowest scope wins。
 - 明确 401/403 不回退。
-- 可切换 Credential revoked / 403 场景，模拟验证不会回退到 Workspace Credential。
+- 可通过 Channel Preview 顶部的 `Demo scenarios` 控件切换 Credential revoked / 403 场景，模拟验证不会回退到 Workspace Credential；该控件仅属于 Demo，不是生产配置能力。
 
 ### Step 7：Channel Preview
 
 点击 Preview in channel 打开模拟频道：
 
-- 发送：@Z Tag 检查这个仓库当前的配置方案，并创建一条测试工单。
+- 发送：@Z Tag 检查这个仓库当前的配置方案，提交一个修复 PR，并创建一条测试工单。
 - 自动创建新 Thread。
 - 展示接单状态与动态 Checklist。
 - 侧边详情拆为两区，避免把启动快照与动态安全策略混为一谈：
@@ -278,6 +280,20 @@ Effective permission
 
 ## 8. 与 Claude Tag 的对标边界
 
+### Resolver 完整规则
+
+| 配置对象 | 解析规则 | 变更生效 |
+|---|---|---|
+| Bundle binding | Default → Workspace → Channel 累加；解绑后立即重算 | Connection / Domain 实时；其余见下 |
+| Credential（同 Host） | 跨层 Narrowest scope wins；401/403 不回退；同层冲突仅作 Z Tag 阻断增强 | 立即作用于所有 Thread |
+| Repository / Plugin / Domain | 稳定去重 Union | Repo / Plugin 新 Thread；Domain 实时 |
+| Scope Instructions | Default → Workspace → Channel 有序拼接 | 新 Thread |
+| Bundle Instructions | 随生效 Bundle 独立分组；不虚构与 Scope Instructions 的相对顺序 | 新 Thread |
+| Model / Environment / Version / Auto-response | 最近一级显式值覆盖；未配置则继承 | 新 Thread；Auto-response 用于后续消息策略 |
+| Channel member edits | `inherit` 继续向父级查找，`allow/block` 为显式结果 | 配置页权限立即生效 |
+
+主路径必演：预填核对 → 保存 Bundle → 绑定并确认风险 → 查看 Diff 与一条 Provenance → 新 Thread 成功。Conflict、revoked、403/no-fallback、Steering 与只读 Trace 是可选附加场景，每项控制在 30–60 秒。
+
 ### 必须忠实还原
 
 - Default → Workspace → Channel Scope Tree。
@@ -292,7 +308,7 @@ Effective permission
 
 ### Z Tag safety enhancement（不写成 Claude Tag 现状）
 
-- Public Channel 绑定 elevated Bundle 前的风险确认。
+- Public Channel 绑定 elevated Bundle 前的风险确认；Elevated 的确定性判定为：存在写 HTTP Method、Repository create-branch/open-pr capability 或 Full-network Environment 中任一项。
 - 同 Scope 同 Host Credential 的保存阻断。
 - 每项 Effective Access 的完整 Provenance 链路与变更 Diff。
 - Connection 编辑器的实时 Policy Preview。
@@ -347,7 +363,7 @@ Effective permission
 
 1. ✅ 用户确认产品方案。
 2. ✅ 独立 subagent Review 产品完整性、Claude Tag 对标准确性、交互闭环和过度设计。
-3. ✅ 完成 P0/P1 修订；Reviewer 结论 `pass with changes`，无剩余阻塞项。
+3. ✅ 完成本轮 P0/P1 修订：冲突校验移至 Attach / 多 Scope usage 预检，补齐成员资格、Resolver 表、必演/可选路径与 Prompt 对齐；无剩余阻塞项。
 4. ✅ 编写技术方案。
 5. ✅ 第二个独立 subagent 完成技术 Review 与两轮复审；最终 `pass with non-blocking changes`，P0/P1 为 0。
 6. ⏳ 开始构建 Demo。
@@ -357,4 +373,5 @@ Effective permission
 - 结论：`pass with changes`。
 - 已关闭 P0：Bundle 创建/绑定重复、Credential write-only、Repository 权限误建模、两类 Instructions 顺序过度确定、Credential 覆盖未进入主故事、Session snapshot 与 Live policy 混用、演示时长不可控。
 - 已吸收 P1：Owner 主视角、差异摘要、最小异常集、四层 Provenance、Z Tag 增强独立标记。
+- 本轮独立 Review 追加并关闭：未绑定 Bundle 的冲突校验层级、Channel member × Org member 权限条件、完整 Resolver / 生效矩阵、3–5 分钟必演路径、Prompt 与 PR 结果对齐、Demo Scenario 控件边界。
 - 官方复核依据：[Give Claude access to your tools](https://claude.com/docs/claude-tag/admins/add-connections)、[Configure per-channel access](https://claude.com/docs/claude-tag/admins/attach-to-scope)、[Configure GitHub access](https://claude.com/docs/claude-tag/admins/configure-github)、[How Claude Tag works](https://claude.com/docs/claude-tag/concepts/how-it-works)、[Security and data handling](https://claude.com/docs/claude-tag/concepts/security-and-data)、[Restrict where Claude Tag operates](https://claude.com/docs/claude-tag/admins/restrict-access)。
