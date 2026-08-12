@@ -348,9 +348,9 @@ Effective permission
 1. ✅ 用户确认产品方案。
 2. ✅ 独立 subagent Review 产品完整性、Claude Tag 对标准确性、交互闭环和过度设计。
 3. ✅ 完成 P0/P1 修订；Reviewer 结论 `pass with changes`，无剩余阻塞项。
-4. ⏳ 编写技术方案。
-5. ⏳ 启动第二个独立 subagent，Review 状态模型、前端架构、模拟层、测试与安全边界。
-6. ⏳ 第二轮无阻塞项后开始构建 Demo。
+4. ✅ 编写技术方案。
+5. ✅ 第二个独立 subagent 完成技术 Review 与两轮复审；最终 `pass with non-blocking changes`，P0/P1 为 0。
+6. ⏳ 开始构建 Demo。
 
 ## 13. 第一轮独立 Review 记录
 
