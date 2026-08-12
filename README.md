@@ -43,7 +43,7 @@ Default Slack access → Workspace Scope → Channel Scope → Thread Session
 | [Claude Tag 三方解读](docs/claude-tag-third-party-analysis.md) | 13 张分析图中可采纳、可参考和不能当作事实的部分 |
 | [官方资料索引](docs/sources.md) | Claude Tag 与 Claude Managed Agents 的官方资料链接 |
 | [研究复核记录](docs/research-changelog.md) | 每轮官方复核发现的新增事实、纠错与仓库同步状态 |
-| [配置 Demo 产品方案（待确认）](docs/demo-product-plan.md) | 首版交互原型的目标、页面、流程、状态、边界与验收标准 |
+| [配置 Demo 产品方案（已确认、已 Review）](docs/demo-product-plan.md) | 首版交互原型的目标、页面、流程、状态、边界、验收标准与独立 Review 结论 |
 
 ## 研究边界
 
