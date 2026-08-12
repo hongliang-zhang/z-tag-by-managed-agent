@@ -44,6 +44,7 @@ Default Slack access → Workspace Scope → Channel Scope → Thread Session
 | [官方资料索引](docs/sources.md) | Claude Tag 与 Claude Managed Agents 的官方资料链接 |
 | [研究复核记录](docs/research-changelog.md) | 每轮官方复核发现的新增事实、纠错与仓库同步状态 |
 | [配置 Demo 产品方案（已确认、已 Review）](docs/demo-product-plan.md) | 首版交互原型的目标、页面、流程、状态、边界、验收标准与独立 Review 结论 |
+| [配置 Demo 技术方案（已 Review）](docs/demo-technical-plan.md) | 前端分层、数据模型、Resolver、状态机、模拟层、测试方案和三轮独立技术 Review 记录 |
 
 ## 研究边界
 
