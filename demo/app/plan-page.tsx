@@ -8,7 +8,9 @@ type PlanPageProps = { kind: "product" | "technical" };
 
 function markdownPath(kind: PlanPageProps["kind"]) {
   const filename = kind === "product" ? "demo-product-plan.md" : "demo-technical-plan.md";
-  return path.resolve(process.cwd(), "../docs", filename);
+  const packagedContent = path.resolve(process.cwd(), "content", filename);
+  const repositorySource = path.resolve(process.cwd(), "../docs", filename);
+  return fs.existsSync(packagedContent) ? packagedContent : repositorySource;
 }
 
 function headings(markdown: string) {
