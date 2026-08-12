@@ -1,6 +1,6 @@
 # Z Tag 配置 Demo 技术方案
 
-> 状态：v0.5，已同步产品方案 v0.3 的本轮独立 Review 修订，等待本轮技术复核。基线为 [`demo-product-plan.md`](demo-product-plan.md)。
+> 状态：v0.6，已关闭本轮独立技术 Review 的 5 个 P1，等待放行复审。基线为 [`demo-product-plan.md`](demo-product-plan.md)。
 
 ## 1. 技术目标
 
@@ -17,7 +17,7 @@ Demo 不是一组可点击的静态页面。主流程中的创建、保存、绑
 ### 首版实现
 
 - 单路由 React + TypeScript 应用。
-- Owner 主视角；Admin / Channel member 作为边界预览，不做完整角色切换系统。权限判断至少保留 `isOrgMember` 与 `isChannelMember` 两个独立属性；只有两者均为 true 且 member edits 解析为 allow 时可编辑频道 Instructions。
+- Owner 主视角；Admin / Channel member 作为边界预览，不做完整角色切换系统。实现只读 `ActorContext` fixture 与 `canEditChannelInstructions(actor, effectiveMemberEdits)` 纯函数；只有 `isOrgMember && isChannelMember && effectiveMemberEdits === 'allow'` 才返回 true。测试覆盖 2×2×allow/block 真值表。
 - Default → Workspace → Channel 三层 Scope。
 - 全局 Access Bundle Library、未绑定 Bundle 创建、Channel binding。
 - Credentials、Repositories、Domains、Plugins、Instructions 五个 Bundle Tab。
@@ -152,6 +152,15 @@ type ScopeBundleBinding = {
   revision: number
 }
 
+type ActorContext = {
+  role: 'owner' | 'admin' | 'member'
+  isOrgMember: boolean
+  isChannelMember: boolean
+}
+
+const canEditChannelInstructions = (actor: ActorContext, edits: 'allow' | 'block') =>
+  actor.isOrgMember && actor.isChannelMember && edits === 'allow'
+
 type DomainRule = { host: string; ports: number[] }
 
 type EnvironmentNetworkPolicy =
@@ -239,7 +248,7 @@ Default access
 - `company-docs-readonly` 绑定 Default。
 - `engineering-base` 绑定 Workspace：包含 `api.staging.example.com` 的只读 GET Credential 与 Engineering 基础 Plugin。
 - `#agent-platform` 初始 0 个 Direct Bundle。
-- Demo mode 创建的 `agent-platform-write` 初始未绑定，包含同 Host 的 `/tickets/` + GET/POST Connection、目标 Repository、Engineering Workflow Plugin、Bundle Instructions。
+- Seed 的 `bundlesById` 中不包含 `agent-platform-write`。点击 Create 才由 `CREATE_BUNDLE_DRAFT` 生成预填但未保存的 draft；只有 `SAVE_BUNDLE` 后才写入 `bundlesById`，随后才能绑定。Draft 包含同 Host 的 `/tickets/` + GET/POST Connection、目标 Repository、Engineering Workflow Plugin、Bundle Instructions。
 - `team-sandbox` Environment 使用 allowlist policy，包含常用 package hosts；`locked-down` 为 deny-all。主故事的 snapshot 固化 `team-sandbox` 完整 policy。
 
 合成外部对象统一使用 `example.com` 与当前公开仓库名；链接点击后显示模拟详情，不打开或调用真实系统。
@@ -307,7 +316,11 @@ Host 规范化规则唯一：输入必须是 hostname，不允许 scheme、port 
 
 ### 7.4 Elevated Bundle
 
-`isElevatedBundle(bundle, resolvedEnvironment)` 是纯函数：只要存在 POST / PUT / PATCH / DELETE Connection、Repository 的内部 `capabilities` 含 `create-branch` / `open-pr`，或目标 Scope 解析出的 Environment 为 `unrestricted`，即为 elevated。UI 仍只展示“Selected repository”和可执行能力说明，不提供虚构的权限下拉。风险确认由该 selector 驱动，不由按钮文案或 Bundle 名称硬编码。
+风险门禁按 mutation 分开：
+
+- `isElevatedBundle(bundle)`：Bundle 存在 POST / PUT / PATCH / DELETE Connection，或 Repository capability 含 `create-branch` / `open-pr`；仅在 Public Channel binding 时触发。
+- `isRiskyEnvironmentChange(before, after)`：Environment 从非 `unrestricted` 变为 `unrestricted`；仅在保存 Scope Environment 变更时触发。
+- 两者不交叉：已有 unrestricted Environment 不会让任意只读 Bundle 被误判 elevated；改变 Environment 也不会绕过门禁。UI 仍只展示“Selected repository”和可执行能力说明，不提供虚构的权限下拉。风险确认由该 selector 驱动，不由按钮文案或 Bundle 名称硬编码。
 
 ### 7.5 Diff
 
@@ -457,17 +470,18 @@ accepted
 - revoked / 403 场景在 Policy step 失败，并显示 winning Channel Credential、no-fallback 原因和修复入口。
 - Open session 只打开 Read-only Trace Drawer；其中没有 Composer。
 - `fixtureId` 只用于 Runner 生成确定性输入，不允许组件直接依据它渲染最终结果：
-  - revoked fixture 先 dispatch `REVOKE_CREDENTIAL`，再运行真实 live evaluator。
+  - revoked fixture 使用 `runScopedCredentialOverride = revoked`，再运行真实 live evaluator；不修改领域 Credential 状态。
   - 403 fixture 为 winning Credential 注入一次模拟外部 403 响应，再由 evaluator 产生 no-fallback 结果。
   - loading-error fixture dispatch 明确的 data-source failure，UI 仅读取 `loading.effectiveSummary`。
 - 每个 Thread 和 run 都有唯一 `threadId + runId`。所有定时事件携带这两个 ID；reducer 忽略非当前 run 的事件。
 - Timers 保存在组件 ref，不进入领域 state；Reset、New thread、重新运行和卸载时统一 cancel。Skip 会先 cancel，再以相同 runId 按顺序同步补发尚未发生的事件，确保只完成一次。
-- 每次 Runner 启动先执行原子 `SETUP_FIXTURE(runId, fixtureId)`：
-  - success：恢复 seed Credential status，清除 external override，loading=`ready`。
-  - revoked：先恢复 seed，再撤销目标 Credential。
-  - 403：恢复 seed，写入仅绑定当前 runId 的一次性 403 override；live evaluator 消费后立即清除。
-  - loading-error：恢复 seed，清除 override，loading=`failed`；Retry dispatch `RESTORE_LOADING` 后重新 resolve。
-- Scenario 切换、Reset、New Thread、Retry 均清理上一 run 的 override 与 failure；连续执行 success → revoked → 403 → loading-error 不共享残留状态。
+- 每次 Runner 启动先执行原子 `SETUP_FIXTURE(runId, fixtureId)`，所有 Scenario 覆盖均为 run-scoped，不改写用户配置：
+  - success：清除本 run 的 Credential / external override，loading=`ready`。
+  - revoked：写入仅属于当前 runId 的 `credentialStatusOverride=revoked`。
+  - 403：写入仅绑定当前 runId 的一次性 403 override；live evaluator 消费后立即清除。
+  - loading-error：清除本 run overrides，loading=`failed`；Retry dispatch `RESTORE_LOADING` 后重新 resolve。
+- Scenario cleanup 只删除当前 run overrides，绝不恢复 seed 或覆盖用户刚完成的配置。
+- Scenario 切换、Reset、New Thread、Retry 均清理上一 run 的 override 与 failure；连续执行 success → revoked → 403 → loading-error 不共享残留状态，也不改变主配置中的 Credential status。
 
 ## 12. Validation 与异常状态
 
@@ -511,7 +525,7 @@ accepted
 ### 13.2 Reducer / Component 测试
 
 - Draft create / update / save / discard。
-- Secret Save 后只留下 `configured` 状态；哨兵 Secret 不进入 action、AppState、snapshot、Summary、Trace 或序列化结果。
+- 新建 Credential 时 Secret 必填；Rotate 可取消。Save 后只留下 `configured` 状态；关闭/取消/卸载 Connection panel 必须清空局部 Secret。哨兵 Secret 不进入 action、AppState、snapshot、Summary、Trace 或序列化结果。
 - Public risk confirm 的 confirm / cancel。
 - `isElevatedBundle` 对写 Method / Repository capability 的判定，Cancel 不产生部分 Binding。
 - Binding 后 Summary、Diff、Provenance 同步更新。
@@ -548,7 +562,15 @@ accepted
 | Snapshot / Live policy | 两个独立数据结构与 selectors |
 | 桌面稳定 | 三档 viewport 浏览器验收 |
 
-## 15. 目录规划
+## 15. Sites / Vinext 构建契约
+
+- 开工时必须先使用 Sites lifecycle 创建标准 Vinext starter；以返回的 checkout 为唯一站点工作区，不自行手搭或假设 Next App Router 兼容性。
+- 保留 starter 的 package manager、lockfile、`scripts`、Sites Vite plugin 与 `.openai/hosting.json`；只在其既有结构中增加页面、领域模块和测试。
+- 站点源码最终同步到本仓库 `demo/`，但 hosting identity 不复制成第二套项目。
+- 构建门禁：领域/组件测试通过；starter 的生产 build 通过；agent preview 中完成主路径、Dialog、三档宽度和可访问性 smoke test；随后 checkpoint 并核验部署状态。
+- 不在技术方案中硬编码 `npm` 命令；执行时使用 starter 已选定的 package manager 与 scripts。
+
+## 16. 目录规划
 
 ```text
 demo/
@@ -576,7 +598,7 @@ demo/
 
 实际站点工作区保持其既有运行目录；同步到本仓库时统一放入 `demo/`，不修改研究截图和现有文档路径。
 
-## 16. 构建顺序
+## 17. 构建顺序
 
 1. 建立 types、seed、resolver、live-policy 与单测。
 2. 搭 AppShell、Scope Tree、Scope Detail 和 Effective Summary。
@@ -587,9 +609,9 @@ demo/
 7. 运行单测、构建、浏览器主流程与 Design QA。
 8. 同步 Demo 源码、测试和 QA 记录到 GitHub；验证后发布可分享版本。
 
-## 17. 技术门禁
+## 18. 技术门禁
 
-> 历史 Review 记录保留；v0.5 将再次执行独立技术复核，复核通过后才开始构建。
+> 历史 Review 记录保留；v0.6 已关闭本轮新增 P1，待同一 reviewer 放行复审后才开始构建。
 
 1. ✅ 独立 subagent 首轮 Review 数据模型、Resolver、状态机、模拟层、测试和安全边界；结论 `blocked`。
 2. ✅ 已按首轮 Review 修复全部 P0/P1：Binding 单一事实源、Live request 唯一顺序、Snapshot 强类型隔离、SansSecret 边界、重复 Binding / Provenance、Timer 取消与测试矩阵。
@@ -598,20 +620,20 @@ demo/
 5. ✅ 最终放行复审：`pass with non-blocking changes`；P0=0、P1=0，允许进入构建。
 6. ✅ 已吸收全部 4 个非阻塞 P2：Repository capability snapshot、LiveRequest port、runId override、Environment catalog 显式依赖。
 
-## 18. 第一轮技术 Review 记录
+## 19. 第一轮技术 Review 记录
 
 - 结论：`blocked`，技术方向正确但暂不能构建。
 - 已关闭 P0：Binding 双写、Credential / Domain / Environment 顺序歧义、Live evaluator 污染 snapshot、Secret 进入 reducer 的类型风险、重复 Binding 与稳定 key 未定义。
 - 已关闭 P1：`false` / `inherit` 解析、snapshot revision、跨 Scope 编辑校验、elevated selector、Diff 派生、scenario 状态驱动、唯一 Vinext Runtime、run timer 取消。
 
-## 19. 第二轮技术 Review 记录
+## 20. 第二轮技术 Review 记录
 
 - 结论：`blocked`；上一轮 5 个 P0 已实质关闭，剩余 4 个局部 P1。
 - 已关闭 P1：Environment policy 可实现模型、Repository capability 与 elevated 判定一致、`(scopeId, bundleId)` 幂等唯一、Scenario setup / cleanup / one-shot override / Retry 生命周期。
 - 已关闭 P2：Host 规范化、`scope rank → position → bindingId` tie-breaker、Admin / Member 只做静态边界预览而非完整角色切换。
 - 最终复审若发现新的 P0/P1，继续修订；不以“开发时再处理”作为放行条件。
 
-## 20. 最终技术复审记录
+## 21. 最终技术复审记录
 
 - 结论：`pass with non-blocking changes`，允许进入构建。
 - P0：0；P1：0。
