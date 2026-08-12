@@ -1,6 +1,6 @@
 # Z Tag 配置 Demo 技术方案
 
-> 状态：v0.6，已关闭本轮独立技术 Review 的 5 个 P1，等待放行复审。基线为 [`demo-product-plan.md`](demo-product-plan.md)。
+> 状态：v0.7，已关闭放行复审剩余的 Scenario override 契约缺口，等待最终复审。基线为 [`demo-product-plan.md`](demo-product-plan.md)。
 
 ## 1. 技术目标
 
@@ -217,6 +217,7 @@ type AppState = {
   simulation: {
     fixtureId: 'success' | 'revoked' | '403-no-fallback' | 'loading-error'
     activeRunId?: string
+    credentialStatusOverride?: { runId: string; routeKey: string; status: 'revoked' }
     externalResponseOverride?: { runId: string; status: 401 | 403 }
   }
   loading: {
@@ -367,12 +368,20 @@ type SessionSnapshot = {
 ```ts
 const livePolicy = selectCurrentLivePolicy(scopeId, state)
 
+type ScenarioOverrides = {
+  activeRunId: string
+  credentialStatus?: { runId: string; routeKey: string; status: 'revoked' }
+  externalResponse?: { runId: string; status: 401 | 403 }
+}
+
 evaluateLiveRequest(
   request, // { host, port = 443, path, method }
   sessionSnapshot.environment.networkPolicy,
   livePolicy,
-  externalResponseOverride // { runId, status: 401 | 403 }
+  scenarioOverrides: ScenarioOverrides
 )
+
+`evaluateLiveRequest` 是唯一入口：仅当 override.runId === activeRunId，且 Credential override 的 routeKey 命中 winning route 时才应用；旧 run override 一律忽略。组件和 Runner 不得自行判断 revoked / 401 / 403。
 ```
 
 `LivePolicyProjection` 类型只包含当前 Connection routes、Domain rules、Credential status 及其 Binding provenance；不包含 Model、Environment、Repo、Plugin 或 Instructions。
@@ -470,7 +479,7 @@ accepted
 - revoked / 403 场景在 Policy step 失败，并显示 winning Channel Credential、no-fallback 原因和修复入口。
 - Open session 只打开 Read-only Trace Drawer；其中没有 Composer。
 - `fixtureId` 只用于 Runner 生成确定性输入，不允许组件直接依据它渲染最终结果：
-  - revoked fixture 使用 `runScopedCredentialOverride = revoked`，再运行真实 live evaluator；不修改领域 Credential 状态。
+  - revoked fixture 写入 `simulation.credentialStatusOverride={runId, routeKey, status:'revoked'}`，再由唯一 `evaluateLiveRequest` 应用；不修改领域 Credential 状态。
   - 403 fixture 为 winning Credential 注入一次模拟外部 403 响应，再由 evaluator 产生 no-fallback 结果。
   - loading-error fixture dispatch 明确的 data-source failure，UI 仅读取 `loading.effectiveSummary`。
 - 每个 Thread 和 run 都有唯一 `threadId + runId`。所有定时事件携带这两个 ID；reducer 忽略非当前 run 的事件。
@@ -534,6 +543,8 @@ accepted
 - Steering 复用同一个 Thread。
 - Reset、Skip、连续创建 Thread 后无陈旧 timer 事件。
 - 连续 success → revoked → 403 → loading-error → Retry 时，Credential、override 与 loading 状态互不污染。
+- 旧 runId 的 Credential / external override 被 evaluator 忽略；cleanup 后领域 Credential status 保持运行前原值。
+- `isRiskyEnvironmentChange(before, after)` 覆盖 restricted→unrestricted、unrestricted→unrestricted、取消确认；确认/取消均不产生部分 Environment mutation。
 - Environment ID 正确解析只读 Registry；deny-all / allowlist / unrestricted 的 fallback 结果正确，未知 ID 阻止建 Thread。
 - Admin / Member 只读入口与全部核心 CTA 无死按钮。
 - Trace Drawer 不出现输入框。
@@ -611,7 +622,7 @@ demo/
 
 ## 18. 技术门禁
 
-> 历史 Review 记录保留；v0.6 已关闭本轮新增 P1，待同一 reviewer 放行复审后才开始构建。
+> 历史 Review 记录保留；v0.7 已补齐 ScenarioOverrides 类型、唯一 evaluator 入口与隔离测试，待同一 reviewer 最终放行后开始构建。
 
 1. ✅ 独立 subagent 首轮 Review 数据模型、Resolver、状态机、模拟层、测试和安全边界；结论 `blocked`。
 2. ✅ 已按首轮 Review 修复全部 P0/P1：Binding 单一事实源、Live request 唯一顺序、Snapshot 强类型隔离、SansSecret 边界、重复 Binding / Provenance、Timer 取消与测试矩阵。
