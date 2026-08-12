@@ -1,6 +1,6 @@
 # Z Tag 配置 Demo 技术方案
 
-> 状态：v0.4，已完成独立技术 Review 与两轮复审。最终结论为 `pass with non-blocking changes`；P0/P1 均为 0，允许进入构建。基线为已确认并完成产品 Review 的 [`demo-product-plan.md`](demo-product-plan.md)。
+> 状态：v0.5，已同步产品方案 v0.3 的本轮独立 Review 修订，等待本轮技术复核。基线为 [`demo-product-plan.md`](demo-product-plan.md)。
 
 ## 1. 技术目标
 
@@ -17,7 +17,7 @@ Demo 不是一组可点击的静态页面。主流程中的创建、保存、绑
 ### 首版实现
 
 - 单路由 React + TypeScript 应用。
-- Owner 主视角；Admin / Channel member 作为只读状态预览，不做完整角色切换系统。
+- Owner 主视角；Admin / Channel member 作为边界预览，不做完整角色切换系统。权限判断至少保留 `isOrgMember` 与 `isChannelMember` 两个独立属性；只有两者均为 true 且 member edits 解析为 allow 时可编辑频道 Instructions。
 - Default → Workspace → Channel 三层 Scope。
 - 全局 Access Bundle Library、未绑定 Bundle 创建、Channel binding。
 - Credentials、Repositories、Domains、Plugins、Instructions 五个 Bundle Tab。
@@ -282,7 +282,10 @@ Host 规范化规则唯一：输入必须是 hostname，不允许 scheme、port 
 ### 7.2 Credential 规则
 
 - 跨 Scope 同 Host：narrowest scope wins。
-- 同 Scope 同 Host：Demo 作为 Z Tag enhancement 阻止 binding / save。
+- Connection draft 保存时仅校验 Bundle 内重复 Host 与字段合法性；未绑定 Bundle 不做 Scope 冲突判断。
+- Attach Bundle 时，Resolver 预检目标 Scope 的 Direct bindings；同 Scope 的其他 Bundle 提供相同 Host 时，作为 Z Tag enhancement 阻止 binding。
+- 编辑已绑定 Bundle 时预检所有 usage scopes；任一 Scope 产生同级同 Host conflict，则原子阻止保存并列出受影响 Scope。
+- 跨 Scope 同 Host：合法覆盖，narrowest scope wins。
 - winning Credential 为 revoked 或返回 401/403：结果失败，不回退到更宽 Scope Credential。
 - 一个 Connection 有多个 Host 时，展开为多个独立 route；每个 Host 单独参与 precedence。
 - Path / Method 未命中 winning Host route 时，不注入 Credential，并继续检查当前 Domain rule 与 Session snapshot 中的 Environment policy。
@@ -304,7 +307,7 @@ Host 规范化规则唯一：输入必须是 hostname，不允许 scheme、port 
 
 ### 7.4 Elevated Bundle
 
-`isElevatedBundle(bundle)` 是纯函数：只要存在 POST / PUT / PATCH / DELETE Connection，或 Repository 的内部 `capabilities` 含 `create-branch` / `open-pr`，即为 elevated。UI 仍只展示“Selected repository”和可执行能力说明，不提供虚构的权限下拉。风险确认由该 selector 驱动，不由按钮文案或 Bundle 名称硬编码。
+`isElevatedBundle(bundle, resolvedEnvironment)` 是纯函数：只要存在 POST / PUT / PATCH / DELETE Connection、Repository 的内部 `capabilities` 含 `create-branch` / `open-pr`，或目标 Scope 解析出的 Environment 为 `unrestricted`，即为 elevated。UI 仍只展示“Selected repository”和可执行能力说明，不提供虚构的权限下拉。风险确认由该 selector 驱动，不由按钮文案或 Bundle 名称硬编码。
 
 ### 7.5 Diff
 
@@ -473,7 +476,9 @@ accepted
 | Host 为空或非法 | Connection form | 字段错误；不能 Save |
 | Path prefix 非 `/` 开头 | Connection form | 字段错误；Policy Preview 不生成 |
 | 未选择 Method | Connection form | 阻止 Save |
-| 同 Scope 同 Host | 绑定第二个重叠 Bundle | Z Tag enhancement 阻止并解释 |
+| Bundle 内重复 Host | Connection draft save | 字段级阻止，不依赖 Scope |
+| 同 Scope 同 Host | Attach 重叠 Bundle，或编辑已被使用的 Bundle | Attach 阻止；编辑时预检全部 usage scopes 并原子阻止 |
+| 跨 Scope 同 Host | Workspace + Channel 各有同 Host | 合法，Channel route 胜出 |
 | Public + elevated | 绑定 Channel Bundle | 必须确认后才写入 binding |
 | Empty Bundle | 清空所有 Tab | 不能进入主演示 binding |
 | Credential revoked | Scenario runner 真实 dispatch revoke | Live policy 立即失败；snapshot 不变 |
@@ -493,7 +498,9 @@ accepted
 - Scope Instructions 顺序。
 - Bundle Instructions 独立分组。
 - Channel Credential 覆盖 Workspace / Default。
-- 同 Scope 同 Host conflict。
+- Bundle 内重复 Host 的表单校验；未绑定 Bundle 不产生 Scope conflict。
+- Attach 时同 Scope 同 Host conflict；编辑已绑定 Bundle时全部 usage scopes 原子预检。
+- 跨 Scope 同 Host 保持合法覆盖。
 - 同一 Connection 多 Host 拆 route 后分别参与 precedence。
 - Host lowercase / 去尾点规范化，拒绝 scheme / port / path；同一规范化 Host stable key 一致。
 - 401/403 no fallback。
@@ -581,6 +588,8 @@ demo/
 8. 同步 Demo 源码、测试和 QA 记录到 GitHub；验证后发布可分享版本。
 
 ## 17. 技术门禁
+
+> 历史 Review 记录保留；v0.5 将再次执行独立技术复核，复核通过后才开始构建。
 
 1. ✅ 独立 subagent 首轮 Review 数据模型、Resolver、状态机、模拟层、测试和安全边界；结论 `blocked`。
 2. ✅ 已按首轮 Review 修复全部 P0/P1：Binding 单一事实源、Live request 唯一顺序、Snapshot 强类型隔离、SansSecret 边界、重复 Binding / Provenance、Timer 取消与测试矩阵。
